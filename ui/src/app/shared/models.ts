@@ -445,6 +445,7 @@ export interface AuthSettings {
     help: {
         chatUrl: string;
         chatText: string;
+        binaryUrls: Record<string, string>;
     };
     plugins: Plugin[];
     userLoginsDisabled: boolean;
@@ -453,6 +454,7 @@ export interface AuthSettings {
     uiBannerContent: string;
     uiBannerURL: string;
     uiBannerPermanent: boolean;
+    uiBannerPosition: string;
 }
 
 export interface UserInfo {
@@ -695,6 +697,7 @@ export interface SyncWindow {
     namespaces: string[];
     clusters: string[];
     manualSync: boolean;
+    timeZone: string;
 }
 
 export interface Project {

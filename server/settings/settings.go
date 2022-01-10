@@ -97,8 +97,9 @@ func (s *Server) Get(ctx context.Context, q *settingspkg.SettingsQuery) (*settin
 			AnonymizeUsers: gaSettings.AnonymizeUsers,
 		},
 		Help: &settingspkg.Help{
-			ChatUrl:  help.ChatURL,
-			ChatText: help.ChatText,
+			ChatUrl:    help.ChatURL,
+			ChatText:   help.ChatText,
+			BinaryUrls: help.BinaryURLs,
 		},
 		Plugins:            plugins,
 		UserLoginsDisabled: userLoginsDisabled,
@@ -121,6 +122,7 @@ func (s *Server) Get(ctx context.Context, q *settingspkg.SettingsQuery) (*settin
 		set.UiBannerContent = argoCDSettings.UiBannerContent
 		set.UiBannerURL = argoCDSettings.UiBannerURL
 		set.UiBannerPermanent = argoCDSettings.UiBannerPermanent
+		set.UiBannerPosition = argoCDSettings.UiBannerPosition
 	}
 	if argoCDSettings.DexConfig != "" {
 		var cfg settingspkg.DexConfig

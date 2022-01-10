@@ -120,6 +120,15 @@ func (s *Server) Get(ctx context.Context, q *repositorypkg.RepoQuery) (*appsv1.R
 		return nil, err
 	}
 
+	// getRepo does not return an error for unconfigured repositories, so we are checking here
+	exists, err := s.db.RepositoryExists(ctx, q.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "repo '%s' not found", q.Repo)
+	}
+
 	// For backwards compatibility, if we have no repo type set assume a default
 	rType := repo.Type
 	if rType == "" {
@@ -309,8 +318,8 @@ func (s *Server) CreateRepository(ctx context.Context, q *repositorypkg.RepoCrea
 	var repo *appsv1.Repository
 	var err error
 
-	// check we can connect to the repo, copying any existing creds
-	{
+	// check we can connect to the repo, copying any existing creds (not supported for project scoped repositories)
+	if q.Repo.Project == "" {
 		repo := q.Repo.DeepCopy()
 		if !repo.HasCredentials() {
 			creds, err := s.db.GetRepositoryCredentials(ctx, repo.Repo)

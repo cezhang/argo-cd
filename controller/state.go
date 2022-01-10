@@ -13,7 +13,6 @@ import (
 	hookutil "github.com/argoproj/gitops-engine/pkg/sync/hook"
 	"github.com/argoproj/gitops-engine/pkg/sync/ignore"
 	resourceutil "github.com/argoproj/gitops-engine/pkg/sync/resource"
-	"github.com/argoproj/gitops-engine/pkg/utils/kube"
 	kubeutil "github.com/argoproj/gitops-engine/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,6 +29,7 @@ import (
 	appclientset "github.com/argoproj/argo-cd/v2/pkg/client/clientset/versioned"
 	"github.com/argoproj/argo-cd/v2/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v2/util/argo"
+	argodiff "github.com/argoproj/argo-cd/v2/util/argo/diff"
 	appstatecache "github.com/argoproj/argo-cd/v2/util/cache/appstate"
 	"github.com/argoproj/argo-cd/v2/util/db"
 	"github.com/argoproj/argo-cd/v2/util/gpg"
@@ -64,6 +64,7 @@ type AppStateManager interface {
 	SyncAppState(app *v1alpha1.Application, state *v1alpha1.OperationState)
 }
 
+// comparisonResult holds the state of an application after the reconciliation
 type comparisonResult struct {
 	syncStatus           *v1alpha1.SyncStatus
 	healthStatus         *v1alpha1.HealthStatus
@@ -155,7 +156,7 @@ func (m *appStateManager) getRepoObjs(app *v1alpha1.Application, source v1alpha1
 		return nil, nil, err
 	}
 	ts.AddCheckpoint("build_options_ms")
-	serverVersion, apiGroups, err := m.liveStateCache.GetVersionsInfo(app.Spec.Destination.Server)
+	serverVersion, apiResources, err := m.liveStateCache.GetVersionsInfo(app.Spec.Destination.Server)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,7 +174,7 @@ func (m *appStateManager) getRepoObjs(app *v1alpha1.Application, source v1alpha1
 		Plugins:           tools,
 		KustomizeOptions:  kustomizeOptions,
 		KubeVersion:       serverVersion,
-		ApiVersions:       argo.APIGroupsToVersions(apiGroups),
+		ApiVersions:       argo.APIResourcesToStrings(apiResources, true),
 		VerifySignature:   verifySignature,
 		HelmRepoCreds:     permittedHelmCredentials,
 		TrackingMethod:    string(argo.GetTrackingMethod(m.settingsMgr)),
@@ -309,64 +310,13 @@ func verifyGnuPGSignature(revision string, project *appv1.AppProject, manifestIn
 	return conditions
 }
 
-func (m *appStateManager) diffArrayCached(configArray []*unstructured.Unstructured, liveArray []*unstructured.Unstructured, cachedDiff []*appv1.ResourceDiff, opts ...diff.Option) (*diff.DiffResultList, error) {
-	numItems := len(configArray)
-	if len(liveArray) != numItems {
-		return nil, fmt.Errorf("left and right arrays have mismatched lengths")
-	}
-
-	diffByKey := map[kube.ResourceKey]*appv1.ResourceDiff{}
-	for i := range cachedDiff {
-		res := cachedDiff[i]
-		diffByKey[kube.NewResourceKey(res.Group, res.Kind, res.Namespace, res.Name)] = cachedDiff[i]
-	}
-
-	diffResultList := diff.DiffResultList{
-		Diffs: make([]diff.DiffResult, numItems),
-	}
-
-	for i := 0; i < numItems; i++ {
-		config := configArray[i]
-		live := liveArray[i]
-		resourceVersion := ""
-		var key kube.ResourceKey
-		if live != nil {
-			key = kube.GetResourceKey(live)
-			resourceVersion = live.GetResourceVersion()
-		} else {
-			key = kube.GetResourceKey(config)
-		}
-		var dr *diff.DiffResult
-		if cachedDiff, ok := diffByKey[key]; ok && cachedDiff.ResourceVersion == resourceVersion {
-			dr = &diff.DiffResult{
-				NormalizedLive: []byte(cachedDiff.NormalizedLiveState),
-				PredictedLive:  []byte(cachedDiff.PredictedLiveState),
-				Modified:       cachedDiff.Modified,
-			}
-		} else {
-			res, err := diff.Diff(configArray[i], liveArray[i], opts...)
-			if err != nil {
-				return nil, err
-			}
-			dr = res
-		}
-		if dr != nil {
-			diffResultList.Diffs[i] = *dr
-			if dr.Modified {
-				diffResultList.Modified = true
-			}
-		}
-	}
-
-	return &diffResultList, nil
-}
-
 // CompareAppState compares application git state to the live app state, using the specified
 // revision and supplied source. If revision or overrides are empty, then compares against
 // revision and overrides in the app spec.
 func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *appv1.AppProject, revision string, source v1alpha1.ApplicationSource, noCache bool, noRevisionCache bool, localManifests []string) *comparisonResult {
 	ts := stats.NewTimingStats()
 	appLabelKey, resourceOverrides, diffNormalizer, resFilter, err := m.getComparisonSettings(app)
+
 	ts.AddCheckpoint("settings_ms")
 
 	// return unknown comparison result if basic comparison settings cannot be loaded
@@ -458,7 +408,7 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *ap
 
 	// filter out all resources which are not permitted in the application project
 	for k, v := range liveObjByKey {
-		if !project.IsLiveResourcePermitted(v, app.Spec.Destination.Server) {
+		if !project.IsLiveResourcePermitted(v, app.Spec.Destination.Server, app.Spec.Destination.Name) {
 			delete(liveObjByKey, k)
 		}
 	}
@@ -487,32 +437,26 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *ap
 		compareOptions = settings.GetDefaultDiffOptions()
 	}
 
-	logCtx.Debugf("built managed objects list")
-	var diffResults *diff.DiffResultList
-
-	diffOpts := []diff.Option{
-		diff.WithNormalizer(diffNormalizer),
-		diff.IgnoreAggregatedRoles(compareOptions.IgnoreAggregatedRoles),
-	}
-	cachedDiff := make([]*appv1.ResourceDiff, 0)
 	// restore comparison using cached diff result if previous comparison was performed for the same revision
 	revisionChanged := manifestInfo == nil || app.Status.Sync.Revision != manifestInfo.Revision
 	specChanged := !reflect.DeepEqual(app.Status.Sync.ComparedTo, appv1.ComparedTo{Source: app.Spec.Source, Destination: app.Spec.Destination})
-
 	_, refreshRequested := app.IsRefreshRequested()
-	noCache = noCache || refreshRequested || app.Status.Expired(m.statusRefreshTimeout)
+	noCache = noCache || refreshRequested || app.Status.Expired(m.statusRefreshTimeout) || specChanged || revisionChanged
 
-	for i := range reconciliation.Target {
-		_ = m.resourceTracking.Normalize(reconciliation.Target[i], reconciliation.Live[i], appLabelKey, string(trackingMethod))
-	}
+	diffConfigBuilder := argodiff.NewDiffConfigBuilder().
+		WithDiffSettings(app.Spec.IgnoreDifferences, resourceOverrides, compareOptions.IgnoreAggregatedRoles).
+		WithTracking(appLabelKey, string(trackingMethod))
 
-	if noCache || specChanged || revisionChanged || m.cache.GetAppManagedResources(app.Name, &cachedDiff) != nil {
-		// (rare) cache miss
-		diffResults, err = diff.DiffArray(reconciliation.Target, reconciliation.Live, diffOpts...)
+	if noCache {
+		diffConfigBuilder.WithNoCache()
 	} else {
-		diffResults, err = m.diffArrayCached(reconciliation.Target, reconciliation.Live, cachedDiff, diffOpts...)
+		diffConfigBuilder.WithCache(m.cache, app.GetName())
 	}
+	// it necessary to ignore the error at this point to avoid creating duplicated
+	// application conditions as argo.StateDiffs will validate this diffConfig again.
+	diffConfig, _ := diffConfigBuilder.Build()
 
+	diffResults, err := argodiff.StateDiffs(reconciliation.Live, reconciliation.Target, diffConfig)
 	if err != nil {
 		diffResults = &diff.DiffResultList{}
 		failedToLoadObjs = true

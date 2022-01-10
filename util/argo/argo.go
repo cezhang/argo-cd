@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/r3labs/diff"
-
+	"github.com/argoproj/gitops-engine/pkg/cache"
 	"github.com/argoproj/gitops-engine/pkg/utils/kube"
+	"github.com/r3labs/diff"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -270,12 +271,12 @@ func ValidateRepo(
 	if err != nil {
 		return nil, err
 	}
-	apiGroups, err := kubectl.GetAPIGroups(config)
+	apiGroups, err := kubectl.GetAPIResources(config, false, cache.NewNoopSettings())
 	if err != nil {
 		return nil, err
 	}
 	conditions = append(conditions, verifyGenerateManifests(
-		ctx, repo, permittedHelmRepos, app, repoClient, kustomizeOptions, plugins, cluster.ServerVersion, APIGroupsToVersions(apiGroups), permittedHelmCredentials, settingsMgr)...)
+		ctx, repo, permittedHelmRepos, app, repoClient, kustomizeOptions, plugins, cluster.ServerVersion, APIResourcesToStrings(apiGroups, true), permittedHelmCredentials, settingsMgr)...)
 
 	return conditions, nil
 }
@@ -374,46 +375,28 @@ func ValidatePermissions(ctx context.Context, spec *argoappv1.ApplicationSpec, p
 	return conditions, nil
 }
 
-// APIGroupsToVersions converts list of API Groups into versions string list
-func APIGroupsToVersions(apiGroups []metav1.APIGroup) []string {
-	var apiVersions []string
-	for _, g := range apiGroups {
-		for _, v := range g.Versions {
-			apiVersions = append(apiVersions, v.GroupVersion)
+// APIResourcesToStrings converts list of API Resources list into string list
+func APIResourcesToStrings(resources []kube.APIResourceInfo, includeKinds bool) []string {
+	resMap := map[string]bool{}
+	for _, r := range resources {
+		groupVersion := r.GroupVersionResource.GroupVersion().String()
+		resMap[groupVersion] = true
+		if includeKinds {
+			resMap[groupVersion+"/"+r.GroupKind.Kind] = true
 		}
+
 	}
-	return apiVersions
+	var res []string
+	for k := range resMap {
+		res = append(res, k)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i] < res[j]
+	})
+	return res
 }
 
-func retrieveScopedRepositories(name string, db db.ArgoDB, ctx context.Context) []*argoappv1.Repository {
-	var repositories []*argoappv1.Repository
-	allRepos, err := db.ListRepositories(ctx)
-	if err != nil {
-		return repositories
-	}
-	for _, repo := range allRepos {
-		if repo.Project == name {
-			repositories = append(repositories, repo)
-		}
-	}
-	return repositories
-}
-
-func retrieveScopedClusters(name string, db db.ArgoDB, ctx context.Context) []*argoappv1.Cluster {
-	var clusters []*argoappv1.Cluster
-	allClusters, err := db.ListClusters(ctx)
-	if err != nil {
-		return clusters
-	}
-	for i, cluster := range allClusters.Items {
-		if cluster.Project == name {
-			clusters = append(clusters, &allClusters.Items[i])
-		}
-	}
-	return clusters
-}
-
-//GetAppProject returns a project from an application
+// GetAppProjectWithScopedResources returns a project from an application with scoped resources
 func GetAppProjectWithScopedResources(name string, projLister applicationsv1.AppProjectLister, ns string, settingsManager *settings.SettingsManager, db db.ArgoDB, ctx context.Context) (*argoappv1.AppProject, argoappv1.Repositories, []*argoappv1.Cluster, error) {
 	projOrig, err := projLister.AppProjects(ns).Get(name)
 	if err != nil {
@@ -426,7 +409,15 @@ func GetAppProjectWithScopedResources(name string, projLister applicationsv1.App
 		return nil, nil, nil, err
 	}
 
-	return project, retrieveScopedRepositories(name, db, ctx), retrieveScopedClusters(name, db, ctx), nil
+	clusters, err := db.GetProjectClusters(ctx, project.Name)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	repos, err := db.GetProjectRepositories(ctx, name)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return project, repos, clusters, nil
 
 }
 
@@ -437,11 +428,17 @@ func GetAppProjectByName(name string, projLister applicationsv1.AppProjectLister
 		return nil, err
 	}
 	project := projOrig.DeepCopy()
-	repos := retrieveScopedRepositories(name, db, ctx)
+	repos, err := db.GetProjectRepositories(ctx, name)
+	if err != nil {
+		return nil, err
+	}
 	for _, repo := range repos {
 		project.Spec.SourceRepos = append(project.Spec.SourceRepos, repo.Repo)
 	}
-	clusters := retrieveScopedClusters(name, db, ctx)
+	clusters, err := db.GetProjectClusters(ctx, name)
+	if err != nil {
+		return nil, err
+	}
 	for _, cluster := range clusters {
 		if len(cluster.Namespaces) == 0 {
 			project.Spec.Destinations = append(project.Spec.Destinations, argoappv1.ApplicationDestination{Server: cluster.Server, Namespace: "*"})
@@ -500,6 +497,7 @@ func verifyGenerateManifests(
 		ApiVersions:       apiVersions,
 		HelmRepoCreds:     repositoryCredentials,
 		TrackingMethod:    string(GetTrackingMethod(settingsMgr)),
+		NoRevisionCache:   true,
 	}
 	req.Repo.CopyCredentialsFromRepo(repoRes)
 	req.Repo.CopySettingsFrom(repoRes)

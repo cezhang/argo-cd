@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	go_runtime "runtime"
 	"strings"
 	gosync "sync"
 	"time"
@@ -813,24 +814,8 @@ func registerDownloadHandlers(mux *http.ServeMux, base string) {
 	if err != nil {
 		log.Warnf("argocd not in PATH")
 	} else {
-		mux.HandleFunc(base+"/argocd-linux-amd64", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc(base+"/argocd-linux-"+go_runtime.GOARCH, func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, linuxPath)
-		})
-	}
-	darwinPath, err := exec.LookPath("argocd-darwin-amd64")
-	if err != nil {
-		log.Warnf("argocd-darwin-amd64 not in PATH")
-	} else {
-		mux.HandleFunc(base+"/argocd-darwin-amd64", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, darwinPath)
-		})
-	}
-	windowsPath, err := exec.LookPath("argocd-windows-amd64.exe")
-	if err != nil {
-		log.Warnf("argocd-windows-amd64.exe not in PATH")
-	} else {
-		mux.HandleFunc(base+"/argocd-windows-amd64.exe", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, windowsPath)
 		})
 	}
 }
@@ -1080,17 +1065,21 @@ func bug21955WorkaroundInterceptor(ctx context.Context, req interface{}, _ *grpc
 		}
 		rk.Url = pattern
 	} else if cq, ok := req.(*clusterpkg.ClusterQuery); ok {
-		server, err := url.QueryUnescape(cq.Server)
-		if err != nil {
-			return nil, err
+		if cq.Id != nil {
+			val, err := url.QueryUnescape(cq.Id.Value)
+			if err != nil {
+				return nil, err
+			}
+			cq.Id.Value = val
 		}
-		cq.Server = server
 	} else if cu, ok := req.(*clusterpkg.ClusterUpdateRequest); ok {
-		server, err := url.QueryUnescape(cu.Cluster.Server)
-		if err != nil {
-			return nil, err
+		if cu.Id != nil {
+			val, err := url.QueryUnescape(cu.Id.Value)
+			if err != nil {
+				return nil, err
+			}
+			cu.Id.Value = val
 		}
-		cu.Cluster.Server = server
 	}
 	return handler(ctx, req)
 }
