@@ -4,6 +4,8 @@ DIST_DIR=${CURRENT_DIR}/dist
 CLI_NAME=argocd
 BIN_NAME=argocd
 
+GEN_RESOURCES_CLI_NAME=argocd-resources-gen
+
 HOST_OS:=$(shell go env GOOS)
 HOST_ARCH:=$(shell go env GOARCH)
 
@@ -121,7 +123,6 @@ PATH:=$(PATH):$(PWD)/hack
 # docker image publishing options
 DOCKER_PUSH?=false
 IMAGE_NAMESPACE?=
-IMAGE_PLATFORMS?=linux/amd64
 # perform static compilation
 STATIC_BUILD?=true
 # build development images
@@ -223,6 +224,10 @@ cli: test-tools-image
 cli-local: clean-debug
 	CGO_ENABLED=0 go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/${CLI_NAME} ./cmd
 
+.PHONY: gen-resources-cli-local
+gen-resources-cli-local: clean-debug
+	CGO_ENABLED=0 go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/${GEN_RESOURCES_CLI_NAME} ./hack/gen-resources/cmd
+
 .PHONY: release-cli
 release-cli: clean-debug
 	make BIN_NAME=argocd-darwin-amd64 GOOS=darwin argocd-all
@@ -282,7 +287,7 @@ image:
 	docker build -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) -f dist/Dockerfile.dev dist
 else
 image:
-	docker buildx build --platform $(IMAGE_PLATFORMS) -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) .
+	docker build -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) .
 endif
 	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) ; fi
 
@@ -504,7 +509,7 @@ serve-docs:
 .PHONY: lint-docs
 lint-docs:
 	#  https://github.com/dkhamsing/awesome_bot
-	find docs -name '*.md' -exec grep -l http {} + | xargs docker run --rm -v $(PWD):/mnt:ro dkhamsing/awesome_bot -t 3 --allow-dupe --allow-redirect --white-list `cat docs/url-allow-list | grep -v "#" | tr "\n" ','` --skip-save-results --
+	find docs -name '*.md' -exec grep -l http {} + | xargs docker run --rm -v $(PWD):/mnt:ro dkhamsing/awesome_bot -t 3 --allow-dupe --allow-redirect --allow-timeout --allow-ssl --allow 502,500,429,400 --white-list `cat docs/url-allow-list | grep -v "#" | tr "\n" ','` --skip-save-results --
 
 # Verify that kubectl can connect to your K8s cluster from Docker
 .PHONY: verify-kube-connect
