@@ -8,8 +8,8 @@ require (
 	github.com/TomOnTime/utfutil v0.0.0-20180511104225-09c41003ee1d
 	github.com/alicebob/miniredis v2.5.0+incompatible
 	github.com/alicebob/miniredis/v2 v2.14.2
-	github.com/argoproj/gitops-engine v0.5.1-0.20220119211147-b5600162862f
-	github.com/argoproj/notifications-engine v0.3.1-0.20220124172652-14e7f52eb33e
+	github.com/argoproj/gitops-engine v0.5.1-0.20220126184517-b0c5e00ccfa5
+	github.com/argoproj/notifications-engine v0.3.1-0.20220127183449-91deed20b998
 	github.com/argoproj/pkg v0.11.1-0.20211203175135-36c59d8fafe0
 	github.com/bombsimon/logrusr/v2 v2.0.1
 	github.com/bradleyfalzon/ghinstallation/v2 v2.0.4
@@ -21,7 +21,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.1
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-git/go-git/v5 v5.2.0
-	github.com/go-logr/logr v1.2.0
+	github.com/go-logr/logr v1.2.2
 	github.com/go-openapi/loads v0.19.4
 	github.com/go-openapi/runtime v0.19.4
 	github.com/go-openapi/spec v0.19.5 // indirect
@@ -81,7 +81,6 @@ require (
 	k8s.io/apimachinery v0.23.1
 	k8s.io/client-go v0.23.1
 	k8s.io/code-generator v0.23.1
-	k8s.io/component-base v0.23.1
 	k8s.io/klog/v2 v2.30.0
 	k8s.io/kube-openapi v0.0.0-20211115234752-e816edb12b65
 	k8s.io/kubectl v0.23.1
@@ -112,7 +111,6 @@ require (
 	github.com/antonmedv/expr v1.8.9 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -180,7 +178,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
-	github.com/slack-go/slack v0.6.6 // indirect
+	github.com/slack-go/slack v0.10.1 // indirect
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/vmihailenco/go-tinylfu v0.2.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.3.4 // indirect
@@ -208,6 +206,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	k8s.io/apiserver v0.23.1 // indirect
 	k8s.io/cli-runtime v0.23.1 // indirect
+	k8s.io/component-base v0.23.1 // indirect
 	k8s.io/component-helpers v0.23.1 // indirect
 	k8s.io/gengo v0.0.0-20210813121822-485abfe95c7c // indirect
 	k8s.io/kube-aggregator v0.23.1 // indirect
